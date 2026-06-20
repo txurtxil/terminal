@@ -12,11 +12,12 @@ class LinuxContainerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Linux Container',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
         primarySwatch: Colors.blue,
       ),
-      home: const TerminalView(),
+      home: const TerminalScreen(),
     );
   }
 }
