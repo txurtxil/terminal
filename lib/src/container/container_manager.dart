@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_pty/flutter_pty.dart';
 import 'container_bootstrap.dart';
 import 'native_paths.dart';
+import 'rootfs_config.dart';
 
 class ContainerManager {
   static final ContainerManager _instance = ContainerManager._internal();
@@ -13,26 +14,32 @@ class ContainerManager {
 
   String? _prootPath;
   String? _rootfsPath;
+  String? get rootfsPath => _rootfsPath;
   bool _ready = false;
   bool get isReady => _ready;
-
-  Future<void> initContainer({
-    void Function(String status, double progress)? onProgress,
-  }) async {
-    if (_ready) return;
-    final bootstrap = ContainerBootstrap();
-    final paths = await bootstrap.ensureExtracted(onProgress: onProgress);
-    _prootPath = paths.prootPath;
-    _rootfsPath = paths.rootfsPath;
-    await _prepareLinks();
-    _ready = true;
-  }
 
   String? _ldLibraryPath;
   String? _loaderPath;
   String? _prootTmpPath;
 
-  Future<void> _prepareLinks() async {
+  Future<void> initContainer({BootLog? log}) async {
+    if (_ready) return;
+    final bootstrap = ContainerBootstrap();
+    final paths = await bootstrap.ensureExtracted(log: log);
+    _prootPath = paths.prootPath;
+    _rootfsPath = paths.rootfsPath;
+    await _prepareLinks(log);
+
+    // Aplica .bashrc, aliases, e instala el menú lc-menu (rápido, sin red).
+    try {
+      await RootfsConfig(_rootfsPath!).apply(onLog: (l) => log?.call(l, progress: 0.97));
+    } catch (_) {}
+
+    log?.call('[ OK ] Lanzando shell de Debian', progress: 1.0);
+    _ready = true;
+  }
+
+  Future<void> _prepareLinks(BootLog? log) async {
     final containerDirPath = Directory(_rootfsPath!).parent.path;
 
     final prootTmpDir = Directory('$containerDirPath/proot_tmp');
@@ -55,14 +62,13 @@ class ContainerManager {
 
     _ldLibraryPath = '${linkDir.path}:$nativeLibDir';
 
-    // Asegura DNS dentro del contenedor (persistente en cada arranque).
     final resolvConf = File('${_rootfsPath!}/etc/resolv.conf');
     try {
       await resolvConf.writeAsString('nameserver 8.8.8.8\nnameserver 1.1.1.1\n');
+      log?.call('[ OK ] DNS configurado (8.8.8.8)', progress: 0.95);
     } catch (_) {}
   }
 
-  /// Arranca proot dentro de un PTY real y devuelve el Pty para conectarlo a xterm.
   Pty startShell({int rows = 24, int columns = 80}) {
     _pty = Pty.start(
       _prootPath!,
@@ -85,6 +91,9 @@ class ContainerManager {
         'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
         'USER': 'root',
         'LANG': 'C.UTF-8',
+        'TMPDIR': '/tmp',
+        'TMP': '/tmp',
+        'TEMP': '/tmp',
         'PROOT_TMP_DIR': _prootTmpPath!,
         'PROOT_LOADER': _loaderPath!,
         'LD_LIBRARY_PATH': _ldLibraryPath!,
