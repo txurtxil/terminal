@@ -1,16 +1,16 @@
-import 'dart:io';
 import 'package:flutter_pty/flutter_pty.dart';
+import 'dart:io';
 import 'container_bootstrap.dart';
 import 'native_paths.dart';
 import 'rootfs_config.dart';
 
+/// Gestiona lo COMPARTIDO entre todas las sesiones: extracción del rootfs,
+/// enlaces de librerías, paths de proot y entorno. Cada sesión (pestaña)
+/// pide un PTY nuevo con startShell(); el manager ya no guarda un PTY único.
 class ContainerManager {
   static final ContainerManager _instance = ContainerManager._internal();
   factory ContainerManager() => _instance;
   ContainerManager._internal();
-
-  Pty? _pty;
-  Pty? get pty => _pty;
 
   String? _prootPath;
   String? _rootfsPath;
@@ -30,7 +30,6 @@ class ContainerManager {
     _rootfsPath = paths.rootfsPath;
     await _prepareLinks(log);
 
-    // Aplica .bashrc, aliases, e instala el menú lc-menu (rápido, sin red).
     try {
       await RootfsConfig(_rootfsPath!).apply(onLog: (l) => log?.call(l, progress: 0.97));
     } catch (_) {}
@@ -69,8 +68,10 @@ class ContainerManager {
     } catch (_) {}
   }
 
+  /// Crea y devuelve un PTY nuevo (una sesión). No guarda estado: cada
+  /// llamada es independiente, permitiendo múltiples sesiones simultáneas.
   Pty startShell({int rows = 24, int columns = 80}) {
-    _pty = Pty.start(
+    return Pty.start(
       _prootPath!,
       arguments: [
         '--link2symlink',
@@ -101,12 +102,5 @@ class ContainerManager {
       rows: rows,
       columns: columns,
     );
-    return _pty!;
-  }
-
-  void dispose() {
-    _pty?.kill();
-    _pty = null;
-    _ready = false;
   }
 }
