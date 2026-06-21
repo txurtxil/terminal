@@ -5,6 +5,8 @@ import 'package:xterm/xterm.dart';
 import '../container/container_manager.dart';
 import 'terminal_keybar.dart';
 import 'terminal_session.dart';
+import 'keybar_config.dart';
+import 'keybar_settings_screen.dart';
 
 class TerminalScreen extends StatefulWidget {
   const TerminalScreen({super.key});
@@ -19,6 +21,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
   final List<TerminalSession> _sessions = [];
   int _activeIndex = 0;
   static const int _maxSessions = 5;
+
+  List<KeyConfigItem> _keybarConfig = KeyCatalog.defaultConfig;
 
   final List<String> _logLines = [];
   double? _progress = 0.0;
@@ -50,11 +54,13 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   Future<void> _boot() async {
     try {
+      // Carga la configuración del teclado guardada
+      _keybarConfig = await KeybarConfig.load();
+
       await _manager.initContainer(log: _appendLog);
       await Future.delayed(const Duration(milliseconds: 300));
       if (!mounted) return;
 
-      // Primera sesión
       _addSession(initial: true);
 
       setState(() => _booting = false);
@@ -84,7 +90,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
     _sessions.add(session);
     if (!initial) {
       setState(() => _activeIndex = _sessions.length - 1);
-      // Arranca la nueva sesión tras el frame (para tamaño correcto)
       SchedulerBinding.instance.addPostFrameCallback((_) {
         WidgetsBinding.instance.endOfFrame.then((_) {
           if (mounted) _startActiveSession();
@@ -102,7 +107,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
   void _switchTo(int index) {
     if (index == _activeIndex) return;
     setState(() => _activeIndex = index);
-    // Si la sesión no se ha arrancado aún, arráncala tras el frame
     SchedulerBinding.instance.addPostFrameCallback((_) {
       WidgetsBinding.instance.endOfFrame.then((_) {
         if (mounted) _startActiveSession();
@@ -178,6 +182,19 @@ class _TerminalScreenState extends State<TerminalScreen> {
     }
   }
 
+  void _openKeybarSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => KeybarSettingsScreen(
+          initial: _keybarConfig,
+          onChanged: (newConfig) {
+            setState(() => _keybarConfig = List.from(newConfig));
+          },
+        ),
+      ),
+    );
+  }
+
   void _showMenu() {
     showModalBottomSheet(
       context: context,
@@ -188,7 +205,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // ── Sesiones ──
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                 child: Row(
@@ -221,7 +237,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
                   onTap: () { Navigator.pop(ctx); _addSession(); },
                 ),
               const Divider(color: Colors.white24),
-              // ── Portapapeles ──
               ListTile(
                 leading: const Icon(Icons.content_paste, color: Colors.greenAccent),
                 title: const Text('Pegar', style: TextStyle(color: Colors.white)),
@@ -233,7 +248,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 onTap: () { Navigator.pop(ctx); _copyScreen(); },
               ),
               const Divider(color: Colors.white24),
-              // ── Ajustes ──
+              ListTile(
+                leading: const Icon(Icons.keyboard, color: Colors.greenAccent),
+                title: const Text('Configurar teclado', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Mostrar, ocultar y reordenar teclas', style: TextStyle(color: Colors.white54)),
+                onTap: () { Navigator.pop(ctx); _openKeybarSettings(); },
+              ),
               ListTile(
                 leading: const Icon(Icons.format_size, color: Colors.greenAccent),
                 title: const Text('Tamaño de fuente', style: TextStyle(color: Colors.white)),
@@ -340,8 +360,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
             Expanded(
               child: Stack(
                 children: [
-                  // IndexedStack mantiene vivas TODAS las sesiones, solo
-                  // muestra la activa (sus PTYs siguen corriendo en segundo plano)
                   IndexedStack(
                     index: _activeIndex,
                     children: _sessions.map((s) {
@@ -381,7 +399,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
                         ),
                       ),
                     ),
-                  // Indicador de sesión activa (esquina superior izquierda)
                   if (_sessions.length > 1)
                     Positioned(
                       top: 8,
@@ -397,6 +414,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
             ),
             TerminalKeybar(
               terminal: _active.terminal,
+              config: _keybarConfig,
               onFontIncrease: () => _changeFont(1),
               onFontDecrease: () => _changeFont(-1),
               onMenu: _showMenu,

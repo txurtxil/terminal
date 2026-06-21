@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:xterm/xterm.dart';
+import 'keybar_config.dart';
 
-/// Barra de teclas especiales. Orden: menú ⋮, controles directos, navegación,
-/// símbolos, fuente, y a la derecha Esc/Ctrl/Tab (Ctrl sticky para flechas).
+/// Barra de teclas configurable. El botón ⋮ (menú) es fijo a la izquierda.
+/// El resto de teclas se renderizan según [config] (solo visibles, en orden).
+/// Ctrl es sticky: se combina con la siguiente tecla pulsada.
 class TerminalKeybar extends StatefulWidget {
   final Terminal terminal;
+  final List<KeyConfigItem> config;
   final VoidCallback? onFontIncrease;
   final VoidCallback? onFontDecrease;
   final VoidCallback? onMenu;
@@ -12,6 +15,7 @@ class TerminalKeybar extends StatefulWidget {
   const TerminalKeybar({
     super.key,
     required this.terminal,
+    required this.config,
     this.onFontIncrease,
     this.onFontDecrease,
     this.onMenu,
@@ -24,29 +28,59 @@ class TerminalKeybar extends StatefulWidget {
 class _TerminalKeybarState extends State<TerminalKeybar> {
   bool _ctrl = false;
 
-  void _toggleCtrl() => setState(() => _ctrl = !_ctrl);
   void _clearCtrl() {
     if (_ctrl) setState(() => _ctrl = false);
   }
 
-  void _ctrlChar(String letter) => widget.terminal.charInput(letter.codeUnitAt(0), ctrl: true);
-
-  void _sendKey(TerminalKey key) {
-    widget.terminal.keyInput(key, ctrl: _ctrl);
-    _clearCtrl();
-  }
-
-  void _sendChar(String ch) {
-    if (_ctrl) {
-      widget.terminal.charInput(ch.codeUnitAt(0), ctrl: true);
-      _clearCtrl();
-    } else {
-      widget.terminal.textInput(ch);
+  void _handle(KeyDef def) {
+    switch (def.action) {
+      case KeyAction.toggleCtrl:
+        setState(() => _ctrl = !_ctrl);
+        break;
+      case KeyAction.ctrlChar:
+        widget.terminal.charInput(def.text!.codeUnitAt(0), ctrl: true);
+        _clearCtrl();
+        break;
+      case KeyAction.sendKey:
+        widget.terminal.keyInput(def.key!, ctrl: _ctrl);
+        _clearCtrl();
+        break;
+      case KeyAction.sendChar:
+        if (_ctrl) {
+          widget.terminal.charInput(def.text!.codeUnitAt(0), ctrl: true);
+          _clearCtrl();
+        } else {
+          widget.terminal.textInput(def.text!);
+        }
+        break;
+      case KeyAction.fontInc:
+        widget.onFontIncrease?.call();
+        break;
+      case KeyAction.fontDec:
+        widget.onFontDecrease?.call();
+        break;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Construye la lista de teclas visibles según la configuración
+    final keys = <Widget>[];
+    for (final item in widget.config) {
+      if (!item.visible) continue;
+      final def = KeyCatalog.byId(item.id);
+      if (def == null) continue;
+      final isCtrlToggle = def.action == KeyAction.toggleCtrl;
+      final isFont = def.action == KeyAction.fontInc || def.action == KeyAction.fontDec;
+      keys.add(_key(
+        def.label,
+        onTap: () => _handle(def),
+        accent: def.accent,
+        highlight: isFont,
+        active: isCtrlToggle && _ctrl,
+      ));
+    }
+
     return Container(
       height: 44,
       color: const Color(0xFF1A1A1A),
@@ -54,38 +88,10 @@ class _TerminalKeybarState extends State<TerminalKeybar> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 4),
         children: [
-          // Menú al principio del todo (izquierda)
+          // ⋮ menú SIEMPRE fijo a la izquierda (no configurable)
           _key('⋮', onTap: () => widget.onMenu?.call(), highlight: true),
           _sep(),
-          // Controles directos
-          _key('^C', onTap: () => _ctrlChar('c'), accent: true),
-          _key('^X', onTap: () => _ctrlChar('x'), accent: true),
-          _key('^Z', onTap: () => _ctrlChar('z'), accent: true),
-          _key('^R', onTap: () => _ctrlChar('r'), accent: true),
-          _sep(),
-          // Navegación
-          _key('↑', onTap: () => _sendKey(TerminalKey.arrowUp)),
-          _key('↓', onTap: () => _sendKey(TerminalKey.arrowDown)),
-          _key('←', onTap: () => _sendKey(TerminalKey.arrowLeft)),
-          // Esc y Ctrl reubicados a la derecha de la flecha izquierda
-          _key('Esc', onTap: () => _sendKey(TerminalKey.escape)),
-          _key('Ctrl', onTap: _toggleCtrl, active: _ctrl),
-          _key('→', onTap: () => _sendKey(TerminalKey.arrowRight)),
-          _key('Tab', onTap: () => _sendKey(TerminalKey.tab)),
-          _key('Home', onTap: () => _sendKey(TerminalKey.home)),
-          _key('End', onTap: () => _sendKey(TerminalKey.end)),
-          _key('PgUp', onTap: () => _sendKey(TerminalKey.pageUp)),
-          _key('PgDn', onTap: () => _sendKey(TerminalKey.pageDown)),
-          _sep(),
-          // Símbolos
-          _key('|', onTap: () => _sendChar('|')),
-          _key('/', onTap: () => _sendChar('/')),
-          _key('-', onTap: () => _sendChar('-')),
-          _key('~', onTap: () => _sendChar('~')),
-          _sep(),
-          // Fuente
-          _key('A−', onTap: () => widget.onFontDecrease?.call(), highlight: true),
-          _key('A+', onTap: () => widget.onFontIncrease?.call(), highlight: true),
+          ...keys,
         ],
       ),
     );
