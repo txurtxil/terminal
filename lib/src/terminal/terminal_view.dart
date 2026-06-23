@@ -7,6 +7,8 @@ import 'terminal_keybar.dart';
 import 'terminal_session.dart';
 import 'keybar_config.dart';
 import 'keybar_settings_screen.dart';
+import '../agent/agent_dashboard.dart';
+import '../agent/mediapipe_test_screen.dart';
 
 class TerminalScreen extends StatefulWidget {
   const TerminalScreen({super.key});
@@ -17,7 +19,6 @@ class TerminalScreen extends StatefulWidget {
 
 class _TerminalScreenState extends State<TerminalScreen> {
   final ContainerManager _manager = ContainerManager();
-
   final List<TerminalSession> _sessions = [];
   int _activeIndex = 0;
   static const int _maxSessions = 5;
@@ -28,6 +29,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   double? _progress = 0.0;
   bool _spinning = false;
   bool _booting = true;
+  bool _showAgent = true; // El agente es la pantalla principal por defecto.
   bool _hasSelection = false;
   String? _error;
 
@@ -56,15 +58,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
     try {
       // Carga la configuración del teclado guardada
       _keybarConfig = await KeybarConfig.load();
-
       await _manager.initContainer(log: _appendLog);
       await Future.delayed(const Duration(milliseconds: 300));
       if (!mounted) return;
-
       _addSession(initial: true);
-
       setState(() => _booting = false);
-
       SchedulerBinding.instance.addPostFrameCallback((_) {
         WidgetsBinding.instance.endOfFrame.then((_) {
           if (mounted) _startActiveSession();
@@ -211,7 +209,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
                   children: [
                     const Icon(Icons.tab, color: Colors.lightBlueAccent, size: 18),
                     const SizedBox(width: 8),
-                    Text('Sesiones (${_sessions.length}/$_maxSessions)', style: const TextStyle(color: Colors.lightBlueAccent, fontWeight: FontWeight.bold)),
+                    Text('Sesiones (${_sessions.length}/$_maxSessions)', style:
+const TextStyle(color: Colors.lightBlueAccent, fontWeight: FontWeight.bold)),
                   ],
                 ),
               ),
@@ -238,6 +237,24 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 ),
               const Divider(color: Colors.white24),
               ListTile(
+                leading: const Icon(Icons.smart_toy_outlined, color: Colors.lightBlueAccent),
+                title: const Text('Ir al Agente IA', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Panel del agente autónomo', style: TextStyle(color: Colors.white54)),
+                onTap: () { Navigator.pop(ctx); setState(() => _showAgent = true); },
+              ),
+              ListTile(
+                leading: const Icon(Icons.bolt, color: Colors.amberAccent),
+                title: const Text('Prueba GPU (MediaPipe)', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Fase 1: inferencia on-device en GPU', style: TextStyle(color: Colors.white54)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const MediaPipeTestScreen()),
+                  );
+                },
+              ),
+              const Divider(color: Colors.white24),
+              ListTile(
                 leading: const Icon(Icons.content_paste, color: Colors.greenAccent),
                 title: const Text('Pegar', style: TextStyle(color: Colors.white)),
                 onTap: () { Navigator.pop(ctx); _paste(); },
@@ -250,7 +267,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
               const Divider(color: Colors.white24),
               ListTile(
                 leading: const Icon(Icons.keyboard, color: Colors.greenAccent),
-                title: const Text('Configurar teclado', style: TextStyle(color: Colors.white)),
+                title: const Text('Configurar teclado', style: TextStyle(color:
+Colors.white)),
                 subtitle: const Text('Mostrar, ocultar y reordenar teclas', style: TextStyle(color: Colors.white54)),
                 onTap: () { Navigator.pop(ctx); _openKeybarSettings(); },
               ),
@@ -269,7 +287,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
               ListTile(
                 leading: const Icon(Icons.cleaning_services, color: Colors.greenAccent),
                 title: const Text('Limpiar pantalla', style: TextStyle(color: Colors.white)),
-                onTap: () { _active.terminal.charInput('l'.codeUnitAt(0), ctrl: true); Navigator.pop(ctx); },
+                onTap: () { _active.terminal.charInput('l'.codeUnitAt(0), ctrl:
+true); Navigator.pop(ctx); },
               ),
               ListTile(
                 leading: const Icon(Icons.restart_alt, color: Colors.amberAccent),
@@ -328,7 +347,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('LinuxContainer · arranque', style: TextStyle(color: Colors.white38, fontFamily: 'monospace', fontSize: 12)),
+                const Text('LinuxContainer · arranque', style: TextStyle(color:
+Colors.white38, fontFamily: 'monospace', fontSize: 12)),
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.builder(
@@ -352,76 +372,118 @@ class _TerminalScreenState extends State<TerminalScreen> {
       );
     }
 
+    // El agente y la terminal nunca se muestran a la vez: pantalla completa
+    // para cada uno, conmutados por un botón. Así el input del agente tiene
+    // todo el espacio y el teclado no se solapa.
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: Stack(
-                children: [
-                  IndexedStack(
-                    index: _activeIndex,
-                    children: _sessions.map((s) {
-                      return TerminalView(
-                        s.terminal,
-                        controller: s.controller,
-                        autofocus: true,
-                        backgroundOpacity: 1.0,
-                        deleteDetection: true,
-                        keyboardType: TextInputType.visiblePassword,
-                        textStyle: TerminalStyle(fontSize: _fontSize, fontFamily: 'monospace'),
-                      );
-                    }).toList(),
-                  ),
-                  if (_hasSelection)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Material(
-                        color: Colors.green.shade700,
-                        borderRadius: BorderRadius.circular(8),
-                        elevation: 4,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: _copySelection,
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.copy, color: Colors.white, size: 18),
-                                SizedBox(width: 6),
-                                Text('Copiar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ),
+        child: _showAgent ? _agentView() : _terminalView(),
+      ),
+    );
+  }
+
+  Widget _agentView() {
+    return AgentDashboard(
+      // El botón de "ocultar" del dashboard ahora lleva a la terminal.
+      onClose: () => setState(() => _showAgent = false),
+    );
+  }
+
+  Widget _terminalView() {
+    return Column(
+      children: [
+        // Barra superior de la terminal con botón para volver al Agente.
+        Container(
+          color: const Color(0xFF1A1A1A),
+          padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'Volver al Agente',
+                onPressed: () => setState(() => _showAgent = true),
+                icon: const Icon(Icons.smart_toy_outlined,
+                    color: Colors.lightBlueAccent, size: 22),
+              ),
+              const SizedBox(width: 2),
+              Expanded(
+                child: Text(
+                  _sessions.length > 1
+                      ? '${_active.name} (${_activeIndex + 1}/${_sessions.length})'
+                      : 'Terminal · Debian',
+                  style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      fontFamily: 'monospace'),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Nueva sesión',
+                onPressed: _sessions.length < _maxSessions ? () => _addSession() : null,
+                icon: const Icon(Icons.add, color: Colors.greenAccent, size: 22),
+              ),
+              IconButton(
+                tooltip: 'Menú',
+                onPressed: _showMenu,
+                icon: const Icon(Icons.more_vert, color: Colors.white70, size: 22),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Stack(
+            children: [
+              IndexedStack(
+                index: _activeIndex,
+                children: _sessions.map((s) {
+                  return TerminalView(
+                    s.terminal,
+                    controller: s.controller,
+                    autofocus: true,
+                    backgroundOpacity: 1.0,
+                    deleteDetection: true,
+                    keyboardType: TextInputType.visiblePassword,
+                    textStyle: TerminalStyle(fontSize: _fontSize, fontFamily: 'monospace'),
+                  );
+                }).toList(),
+              ),
+              if (_hasSelection)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Material(
+                    color: Colors.green.shade700,
+                    borderRadius: BorderRadius.circular(8),
+                    elevation: 4,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: _copySelection,
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.copy, color: Colors.white, size: 18),
+                            SizedBox(width: 6),
+                            Text('Copiar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          ],
                         ),
                       ),
                     ),
-                  if (_sessions.length > 1)
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
-                        child: Text('${_active.name} (${_activeIndex + 1}/${_sessions.length})', style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 11, fontFamily: 'monospace')),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            TerminalKeybar(
-              terminal: _active.terminal,
-              config: _keybarConfig,
-              onFontIncrease: () => _changeFont(1),
-              onFontDecrease: () => _changeFont(-1),
-              onMenu: _showMenu,
-            ),
-          ],
+                  ),
+                ),
+            ],
+          ),
         ),
-      ),
+        TerminalKeybar(
+          terminal: _active.terminal,
+          config: _keybarConfig,
+          onFontIncrease: () => _changeFont(1),
+          onFontDecrease: () => _changeFont(-1),
+          onMenu: _showMenu,
+        ),
+      ],
     );
   }
 }
